@@ -1,0 +1,63 @@
+name: Puzzles
+
+# Pull requests: check the puzzle files.
+# Push to main: check, then publish upcoming puzzles to Supabase.
+# Every Monday: publish again (harmless, upserts) and fail if next week isn't scheduled yet,
+# so GitHub emails a reminder.
+on:
+  pull_request:
+    paths: ['puzzles/**', 'scripts/*_puzzles.py', 'src/lib/date.ts', '.github/workflows/puzzles.yml']
+  push:
+    branches: [main]
+    paths: ['puzzles/**', 'scripts/*_puzzles.py', 'src/lib/date.ts', '.github/workflows/puzzles.yml']
+  schedule:
+    - cron: '0 14 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: puzzles-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check every puzzle
+        run: python3 scripts/check_puzzles.py
+
+  publish:
+    needs: check
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Publish upcoming puzzles to Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "::warning::SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY secrets are not set; skipping publish."
+            python3 scripts/publish_puzzles.py --dry-run
+            exit 0
+          fi
+          python3 scripts/publish_puzzles.py
+
+  runway:
+    needs: check
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Next week must be scheduled
+        run: python3 scripts/check_puzzles.py --ahead 7
