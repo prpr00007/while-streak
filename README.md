@@ -28,11 +28,23 @@ Without Supabase keys the app runs fully offline: puzzles come from the files in
 ## Turn on leaderboards (optional sign-in)
 
 1. Create a project at supabase.com.
-2. In the SQL editor, run `supabase/schema.sql`, then `supabase/seed.sql`.
+2. In the SQL editor, run `supabase/schema.sql`, then `supabase/seed.sql` (generated from `puzzles/`; it loads every puzzle written so far).
 3. Authentication: keep the Email provider on. In **Email Templates > Magic Link**, include `{{ .Token }}` in the body so players get a 6-digit code (the app signs in with a code, no deep links needed).
 4. Copy `.env.example` to `.env`, fill in your project URL and anon key, and restart `npx expo start`.
 
 Players can play and keep streaks without an account. Signing in (email code) plus picking a username puts their daily score on the leaderboard. A result finished before signing in is uploaded automatically after they sign in.
+
+## Weekly puzzles
+
+New puzzles live in `puzzles/`, one JSON file per week. `puzzles/README.md` has the format and the routine:
+
+```bash
+python3 scripts/check_puzzles.py              # runs every puzzle's code and checks the schedule
+python3 scripts/publish_puzzles.py --dry-run  # what would be sent to Supabase
+python3 scripts/publish_puzzles.py --sql > supabase/seed.sql   # regenerate the seed
+```
+
+The **Puzzles** GitHub Action checks pull requests, publishes to Supabase on merge to `main`, and fails every Monday if next week isn't scheduled yet. To turn on publishing, add two repository secrets (GitHub: Settings > Secrets and variables > Actions): `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` (Supabase: Project Settings > API, the `service_role` key). That key bypasses row-level security, so it only ever goes in CI secrets, never in `.env` or the app.
 
 ## How puzzles are scheduled
 
@@ -60,7 +72,10 @@ src/game/choiceEngine.ts Output and Fill logic (multiple choice, tries per forma
 src/data/                7 bundled puzzles per format
 src/components/          shared UI (retro buttons, labels, cursor), result card, boot screen
 src/lib/                 dates, storage (per-format saves/stats, shared streak), Supabase, results
-supabase/                schema + seed
+puzzles/                 one JSON file per week, with tests; source of truth for Supabase
+scripts/                 check_puzzles.py (validate + run), publish_puzzles.py (upload, seed)
+.github/workflows/       Puzzles: check PRs, publish on merge, weekly reminder
+supabase/                schema + generated seed
 ```
 
 ## Known limits before a public launch
