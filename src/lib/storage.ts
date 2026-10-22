@@ -1,15 +1,23 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { GameState, MAX_TRIES } from '../game/orderEngine';
-import { addDays, localDateKey } from './date';
+import type { Format } from '../types';
+import type { GameState } from '../game/orderEngine';
+import type { BugGame } from '../game/bugEngine';
+import { MAX_TRIES as ORDER_TRIES } from '../game/orderEngine';
+import { MAX_TRIES as BUG_TRIES } from '../game/bugEngine';
+import { addDays, localDateKey, puzzleNumberFor } from './date';
 
 export type StreakInfo = { count: number; best: number; last: string | null };
 export type Stats = { played: number; wins: number; dist: number[] };
+type Games = { order: GameState; bug: BugGame };
 
+export const MAX_TRIES: Record<Format, number> = { order: ORDER_TRIES, bug: BUG_TRIES };
+
+// Order keeps its original keys so existing saves carry over.
 const STREAK = 'ws:streak';
-const STATS = 'ws:stats';
-const gameKey = (n: number) => `ws:game:${n}`;
+const statsKey = (f: Format) => (f === 'order' ? 'ws:stats' : `ws:stats:${f}`);
+const gameKey = (f: Format, n: number) => (f === 'order' ? `ws:game:${n}` : `ws:${f}:${n}`);
 const defaultStreak: StreakInfo = { count: 0, best: 0, last: null };
-const defaultStats = (): Stats => ({ played: 0, wins: 0, dist: Array(MAX_TRIES).fill(0) });
+const defaultStats = (f: Format): Stats => ({ played: 0, wins: 0, dist: Array(MAX_TRIES[f]).fill(0) });
 
 async function read<T>(k: string, fallback: T): Promise<T> {
   try {
@@ -26,9 +34,9 @@ async function write(k: string, v: unknown): Promise<void> {
   } catch {}
 }
 
-export const loadGame = (n: number) => read<GameState | null>(gameKey(n), null);
-export const saveGame = (g: GameState) => write(gameKey(g.puzzleNumber), g);
-export const loadStats = () => read<Stats>(STATS, defaultStats());
+export const loadGame = <F extends Format>(f: F, n: number) => read<Games[F] | null>(gameKey(f, n), null);
+export const saveGame = <F extends Format>(f: F, g: Games[F]) => write(gameKey(f, g.puzzleNumber), g);
+export const loadStats = (f: Format) => read<Stats>(statsKey(f), defaultStats(f));
 
 export async function loadStreak(): Promise<StreakInfo> {
   const s = await read<StreakInfo>(STREAK, defaultStreak);
@@ -37,26 +45,29 @@ export async function loadStreak(): Promise<StreakInfo> {
   return s;
 }
 
-export async function recordFinish(won: boolean, tries: number) {
+// The streak counts days with at least one solved puzzle. A loss only breaks it once
+// every puzzle today has been lost; until then the other format can still save the day.
+export async function recordFinish(format: Format, won: boolean, tries: number) {
   const today = localDateKey();
   const s = await read<StreakInfo>(STREAK, defaultStreak);
-  let streak: StreakInfo;
+  let streak = s;
   if (won) {
-    if (s.last === today) streak = s;
-    else {
+    if (s.last !== today) {
       const count = (s.last === addDays(today, -1) ? s.count : 0) + 1;
       streak = { count, best: Math.max(s.best, count), last: today };
     }
-  } else {
-    streak = { count: 0, best: s.best, last: null };
+  } else if (s.last !== today) {
+    const other: Format = format === 'order' ? 'bug' : 'order';
+    const otherGame = await loadGame(other, puzzleNumberFor(today));
+    if (otherGame?.status === 'lost') streak = { count: 0, best: s.best, last: null };
   }
-  const st = await loadStats();
+  const st = await loadStats(format);
   const stats: Stats = {
     played: st.played + 1,
     wins: st.wins + (won ? 1 : 0),
     dist: st.dist.map((n, i) => (won && i === tries - 1 ? n + 1 : n)),
   };
   await write(STREAK, streak);
-  await write(STATS, stats);
-  return { streak, stats };
+  await write(statsKey(format), stats);
+  return { streak: await loadStreak(), stats };
 }

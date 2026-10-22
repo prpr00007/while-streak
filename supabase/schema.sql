@@ -1,14 +1,18 @@
 -- while(streak) schema. Paste into the Supabase SQL editor and run once.
 
+-- One row per (number, format): each day has an Order puzzle and a Bug Hunt puzzle.
 create table if not exists public.puzzles (
-  number       int primary key,
-  publish_date date not null unique,
-  format       text not null default 'order' check (format in ('order')),
+  number       int not null,
+  publish_date date not null,
+  format       text not null default 'order' check (format in ('order', 'bug')),
   title        text not null,
   prompt       text not null,
-  lines        jsonb not null,  -- [{ "id": "a", "text": "def f():", "indent": 0 }, ...]
-  solution     jsonb not null,  -- ["a", "b", ...]
-  why          text not null
+  lines        jsonb not null,  -- order: [{ "id": "a", "text": "def f():", "indent": 0 }, ...]; bug: [{ "text": ..., "indent": 0 }, ...]
+  solution     jsonb not null,  -- order: ["a", "b", ...]; bug: { "bug": 2, "fix": "while lo <= hi:" }
+  hint         text,            -- bug only: shown after the first miss
+  why          text not null,
+  primary key (number, format),
+  unique (publish_date, format)
 );
 alter table public.puzzles enable row level security;
 -- +1 day covers time zones ahead of UTC; future puzzles stay hidden.
@@ -28,12 +32,13 @@ create policy "users update their profile" on public.profiles for update using (
 create table if not exists public.results (
   user_id       uuid not null references auth.users(id) on delete cascade,
   puzzle_number int not null,
+  format        text not null default 'order' check (format in ('order', 'bug')),
   solved        boolean not null,
   tries         smallint not null check (tries between 1 and 4),
   time_ms       int not null check (time_ms >= 0),
   grid          text not null,
   created_at    timestamptz not null default now(),
-  primary key (user_id, puzzle_number)
+  primary key (user_id, puzzle_number, format)
 );
 alter table public.results enable row level security;
 create policy "results are public" on public.results for select using (true);
@@ -41,7 +46,7 @@ create policy "results are public" on public.results for select using (true);
 create policy "users submit their own result" on public.results for insert with check (auth.uid() = user_id);
 
 create or replace view public.leaderboard with (security_invoker = true) as
-  select r.puzzle_number, r.user_id, p.username, r.solved, r.tries, r.time_ms
+  select r.puzzle_number, r.format, r.user_id, p.username, r.solved, r.tries, r.time_ms
   from public.results r
   join public.profiles p on p.id = r.user_id;
 grant select on public.leaderboard to anon, authenticated;

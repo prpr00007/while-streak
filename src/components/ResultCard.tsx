@@ -1,16 +1,21 @@
 import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { fonts, hardShadow, Palette } from '../theme';
-import type { OrderPuzzle } from '../types';
-import { GameState, MAX_TRIES, gridRows, scoreLabel } from '../game/orderEngine';
 import { Stats, StreakInfo } from '../lib/storage';
 import { formatClock, formatDuration, msUntilMidnight } from '../lib/date';
 import RichText from './RichText';
 import { Button, Label, TextLink } from './ui';
 
+// Shared end-of-game card. Each game passes its own grid, score, and explanation.
 type Props = {
-  puzzle: OrderPuzzle;
-  game: GameState;
+  won: boolean;
+  tries: number;
+  maxTries: number;
+  timeMs: number;
+  grid: boolean[][]; // one row per check (Order) or one row of guesses (Bug Hunt)
+  lostNote: string; // e.g. "The correct order is filled in above."
+  why: string;
+  section: number;
   streak: StreakInfo;
   stats: Stats;
   theme: Palette;
@@ -18,15 +23,14 @@ type Props = {
   onLeaderboard: () => void;
 };
 
-export default function ResultCard({ puzzle, game, streak, stats, theme, onShare, onLeaderboard }: Props) {
+export default function ResultCard(props: Props) {
+  const { won, tries, maxTries, timeMs, grid, lostNote, why, section, streak, stats, theme, onShare, onLeaderboard } = props;
   const [left, setLeft] = useState(msUntilMidnight());
   useEffect(() => {
     const t = setInterval(() => setLeft(msUntilMidnight()), 1000);
     return () => clearInterval(t);
   }, []);
 
-  const won = game.status === 'won';
-  const tries = game.attempts.length;
   const headline = won ? (tries === 1 ? 'First try. Clean.' : `Solved in ${tries} tries`) : 'Out of tries';
   const winPct = stats.played ? Math.round((stats.wins / stats.played) * 100) : 0;
   const maxDist = Math.max(1, ...stats.dist);
@@ -34,18 +38,18 @@ export default function ResultCard({ puzzle, game, streak, stats, theme, onShare
 
   return (
     <View style={s.card}>
-      <Label theme={theme} index={3} style={{ marginBottom: 6 }}>{won ? 'Solved' : 'Game over'}</Label>
+      <Label theme={theme} index={section} style={{ marginBottom: 6 }}>{won ? 'Solved' : 'Game over'}</Label>
       <Text style={s.headline}>{headline}</Text>
-      {!won && <Text style={s.sub}>The correct order is filled in above.</Text>}
+      {!won && <Text style={s.sub}>{lostNote}</Text>}
 
       <View style={s.stats}>
-        <Stat label="score" value={scoreLabel(game)} s={s} />
-        <Stat label="time" value={formatDuration((game.endedAt ?? Date.now()) - game.startedAt)} s={s} />
+        <Stat label="score" value={`${won ? tries : 'X'}/${maxTries}`} s={s} />
+        <Stat label="time" value={formatDuration(timeMs)} s={s} />
         <Stat label="streak" value={String(streak.count)} s={s} />
       </View>
 
-      <View style={s.grid} accessibilityLabel={`Your attempts: ${gridRows(game).join(', ')}`}>
-        {game.attempts.map((row, r) => (
+      <View style={s.grid} accessibilityLabel={`Your attempts: ${grid.map((r) => r.map((ok) => (ok ? 'hit' : 'miss')).join(' ')).join(', ')}`}>
+        {grid.map((row, r) => (
           <View key={r} style={s.gridRow}>
             {row.map((ok, c) => (
               <View key={c} style={[s.cell, ok && { backgroundColor: theme.ok, borderColor: theme.ok }]} />
@@ -61,7 +65,7 @@ export default function ResultCard({ puzzle, game, streak, stats, theme, onShare
 
       <View style={s.why}>
         <Label theme={theme} style={{ marginBottom: 6 }}>Why it works</Label>
-        <RichText text={puzzle.why} theme={theme} style={{ fontFamily: fonts.mono, fontSize: 13, lineHeight: 20, color: theme.ink }} />
+        <RichText text={why} theme={theme} style={{ fontFamily: fonts.mono, fontSize: 13, lineHeight: 20, color: theme.ink }} />
       </View>
 
       <Label theme={theme} style={{ marginTop: 18 }}>Your stats</Label>
@@ -70,7 +74,7 @@ export default function ResultCard({ puzzle, game, streak, stats, theme, onShare
         <Stat label="win %" value={String(winPct)} s={s} />
         <Stat label="best" value={String(streak.best)} s={s} />
       </View>
-      {Array.from({ length: MAX_TRIES }, (_, i) => (
+      {Array.from({ length: maxTries }, (_, i) => (
         <View key={i} style={s.distRow}>
           <Text style={s.distLabel}>{i + 1}</Text>
           <View

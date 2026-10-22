@@ -1,11 +1,17 @@
 import { useCallback, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { fonts, hardShadow, Palette, useTheme } from '../src/theme';
 import { Label } from '../src/components/ui';
 import { supabase } from '../src/lib/supabase';
 import { formatDuration, localDateKey, puzzleNumberFor } from '../src/lib/date';
-import { MAX_TRIES } from '../src/game/orderEngine';
+import { MAX_TRIES } from '../src/lib/storage';
+import type { Format } from '../src/types';
+
+const TABS: { format: Format; label: string }[] = [
+  { format: 'order', label: 'Order' },
+  { format: 'bug', label: 'Bug Hunt' },
+];
 
 type Row = { user_id: string; username: string; solved: boolean; tries: number; time_ms: number };
 
@@ -17,6 +23,9 @@ export default function Leaderboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const number = puzzleNumberFor(localDateKey());
+  const params = useLocalSearchParams<{ format?: string }>();
+  const [format, setFormat] = useState<Format>(params.format === 'bug' ? 'bug' : 'order');
+  const max = MAX_TRIES[format];
 
   const load = useCallback(async () => {
     if (!supabase) {
@@ -31,6 +40,7 @@ export default function Leaderboard() {
       .from('leaderboard')
       .select('user_id, username, solved, tries, time_ms')
       .eq('puzzle_number', number)
+      .eq('format', format)
       .order('solved', { ascending: false })
       .order('tries', { ascending: true })
       .order('time_ms', { ascending: true })
@@ -38,7 +48,7 @@ export default function Leaderboard() {
     if (error) setError('Couldn’t load the leaderboard. Pull down to try again.');
     else setRows((data ?? []) as Row[]);
     setLoading(false);
-  }, [number]);
+  }, [number, format]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -62,6 +72,22 @@ export default function Leaderboard() {
       ListHeaderComponent={
         <View>
           <Text style={s.heading}>Puzzle No. {String(number).padStart(3, '0')}</Text>
+          <View style={s.tabs} accessibilityRole="tablist">
+            {TABS.map((tab) => {
+              const on = tab.format === format;
+              return (
+                <Pressable
+                  key={tab.format}
+                  onPress={() => { setRows([]); setFormat(tab.format); }}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: on }}
+                  style={[s.tab, on && { backgroundColor: theme.ink }]}
+                >
+                  <Text style={[s.tabText, on && { color: theme.bg }]}>{tab.label.toUpperCase()}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
           {!me && (
             <Pressable
               style={({ pressed }) => [s.banner, pressed ? { transform: [{ translateX: 3 }, { translateY: 3 }] } : hardShadow(theme)]}
@@ -91,7 +117,7 @@ export default function Leaderboard() {
           <View style={[s.row, mine && { backgroundColor: theme.ink }]}>
             <Text style={[s.rank, s.rankText, mine && { color: theme.accent }]}>{String(index + 1).padStart(2, '0')}</Text>
             <Text style={[s.name, mine && { color: theme.bg }]} numberOfLines={1}>{item.username}</Text>
-            <Text style={[s.score, mine && { color: theme.bg }]}>{item.solved ? `${item.tries}/${MAX_TRIES}` : `X/${MAX_TRIES}`}</Text>
+            <Text style={[s.score, mine && { color: theme.bg }]}>{item.solved ? `${item.tries}/${max}` : `X/${max}`}</Text>
             <Text style={[s.time, s.timeText, mine && { color: theme.bg }]}>{formatDuration(item.time_ms)}</Text>
           </View>
         );
@@ -103,7 +129,10 @@ export default function Leaderboard() {
 const makeStyles = (t: Palette) =>
   StyleSheet.create({
     list: { padding: 16 },
-    heading: { fontFamily: fonts.display, fontSize: 40, lineHeight: 40, color: t.ink, marginBottom: 16 },
+    heading: { fontFamily: fonts.display, fontSize: 40, lineHeight: 40, color: t.ink, marginBottom: 14 },
+    tabs: { flexDirection: 'row', borderWidth: 2, borderColor: t.ink, marginBottom: 20 },
+    tab: { flex: 1, paddingVertical: 9, alignItems: 'center' },
+    tabText: { fontFamily: fonts.monoBold, fontSize: 12, letterSpacing: 1.8, color: t.ink },
     banner: {
       flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12,
       backgroundColor: t.surface, borderColor: t.ink, borderWidth: 2, padding: 14, marginBottom: 22,

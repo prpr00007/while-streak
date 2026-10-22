@@ -1,6 +1,11 @@
 # while(streak)
 
-A daily coding puzzle game. Everyone gets the same puzzle each day, keeps a streak going, and shares a Wordle-style grid. This first build ships one format, **Order**: put shuffled lines of code back in order, with one decoy line mixed in and 4 tries.
+A daily coding puzzle game. Everyone gets the same puzzles each day, keeps a streak going, and shares a Wordle-style grid. Each day has two puzzles:
+
+- **Order**: put shuffled lines of code back in order, with one decoy line mixed in. 4 tries.
+- **Bug Hunt**: one line of a short function is wrong. Select it and check. 3 tries; a hint unlocks after the first miss, and the fix is shown as a diff at the end.
+
+The streak counts days where you solved at least one of the two. Losing both resets it.
 
 Stack: Expo (React Native, iOS + Android) with expo-router, and Supabase (optional) for puzzles, sign-in, and leaderboards.
 
@@ -16,7 +21,7 @@ Stack: Expo (React Native, iOS + Android) with expo-router, and Supabase (option
    ```
 3. Scan the QR code with your phone camera (iOS) or Expo Go (Android).
 
-Without Supabase keys the app runs fully offline: puzzles come from `src/data/fallbackPuzzles.ts`, and streaks and stats are stored on the device.
+Without Supabase keys the app runs fully offline: puzzles come from `src/data/fallbackPuzzles.ts` and `src/data/fallbackBugPuzzles.ts`, and streaks and stats are stored on the device.
 
 ## Turn on leaderboards (optional sign-in)
 
@@ -30,20 +35,25 @@ Players can play and keep streaks without an account. Signing in (email code) pl
 ## How puzzles are scheduled
 
 - `LAUNCH_DATE` in `src/lib/date.ts` is puzzle #1. Each day after is the next number.
-- The app asks Supabase for today's number; if there's no row, it falls back to the bundled puzzles in rotation.
+- The app asks Supabase for today's number in each format (`puzzles` is keyed by `number` + `format`); if there's no row, it falls back to the bundled puzzles in rotation.
 - Every player sees the same shuffle (seeded by the puzzle number).
-- Writing a puzzle: each one needs exactly one correct order plus one decoy line. Watch for pairs of lines that could legally swap (like `a = 0` and `b = 0`); merge them into one line (`a, b = 0, 0`) or the grader will mark a valid answer wrong.
+- Writing an Order puzzle: each one needs exactly one correct order plus one decoy line. Watch for pairs of lines that could legally swap (like `a = 0` and `b = 0`); merge them into one line (`a, b = 0, 0`) or the grader will mark a valid answer wrong.
+- Writing a Bug Hunt puzzle: exactly one line is wrong, and replacing it with `fix` must make the function correct. Avoid bugs that span two lines or that could be fixed by editing a different line, or players who pick that line are marked wrong. The `hint` should point at a failing input without naming the line. In Supabase, `solution` is `{ "bug": <0-based line>, "fix": "<corrected line>" }`.
 
 ## Project map
 
 ```
-app/_layout.tsx          navigation, fonts, theme
-app/index.tsx            today's puzzle
-app/leaderboard.tsx      today's ranking (solved, then fewest tries, then time)
+app/_layout.tsx          navigation, fonts, theme, native splash
+app/index.tsx            home: boot screen, today's two puzzles and their status
+app/order.tsx            Order puzzle
+app/bug.tsx              Bug Hunt puzzle
+app/leaderboard.tsx      today's ranking per format (solved, then fewest tries, then time)
 app/account.tsx          optional email sign-in + username
-src/game/orderEngine.ts  pure game logic (place, check, lock, share text)
-src/data/fallbackPuzzles.ts  7 bundled puzzles
-src/lib/                 dates, storage (streaks/stats), Supabase, results
+src/game/orderEngine.ts  Order logic (place, check, lock, share text)
+src/game/bugEngine.ts    Bug Hunt logic (guess, grid, share text)
+src/data/                7 bundled puzzles per format
+src/components/          shared UI (retro buttons, labels, cursor), result card, boot screen
+src/lib/                 dates, storage (per-format saves/stats, shared streak), Supabase, results
 supabase/                schema + seed
 ```
 

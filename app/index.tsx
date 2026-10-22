@@ -1,149 +1,86 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  Animated, AppState, LayoutAnimation, Platform, Pressable,
-  ScrollView, type ScrollViewInstance, Share, StyleSheet, Text, UIManager, View,
-} from 'react-native';
+import { AppState, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
-import * as Haptics from 'expo-haptics';
 import { fonts, hardShadow, Palette, useTheme } from '../src/theme';
-import type { OrderPuzzle } from '../src/types';
-import * as E from '../src/game/orderEngine';
-import { getTodaysPuzzle } from '../src/lib/puzzles';
-import { loadGame, loadStats, loadStreak, recordFinish, saveGame, Stats, StreakInfo } from '../src/lib/storage';
-import { localDateKey } from '../src/lib/date';
-import { submitResult } from '../src/lib/results';
-import CodeLine from '../src/components/CodeLine';
-import RichText from '../src/components/RichText';
-import ResultCard from '../src/components/ResultCard';
-import { Button, Cursor, Label, Loading, TextLink } from '../src/components/ui';
+import type { BugPuzzle, Format, OrderPuzzle } from '../src/types';
+import type { GameState } from '../src/game/orderEngine';
+import type { BugGame } from '../src/game/bugEngine';
+import { getTodaysBugPuzzle, getTodaysPuzzle } from '../src/lib/puzzles';
+import { loadGame, loadStreak, MAX_TRIES, StreakInfo } from '../src/lib/storage';
+import { formatClock, localDateKey, msUntilMidnight } from '../src/lib/date';
 import BootScreen from '../src/components/BootScreen';
+import { Label, Loading, TextLink } from '../src/components/ui';
 
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
+type Today = {
+  order: OrderPuzzle;
+  bug: BugPuzzle;
+  orderGame: GameState | null;
+  bugGame: BugGame | null;
+  streak: StreakInfo;
+};
+
+type Status = { label: string; tone: 'new' | 'active' | 'won' | 'lost' };
+
+function statusOf(game: { status: string } | null, used: number, max: number): Status {
+  if (game?.status === 'won') return { label: `SOLVED ${used}/${max}`, tone: 'won' };
+  if (game?.status === 'lost') return { label: `FAILED X/${max}`, tone: 'lost' };
+  if (game && used > 0) return { label: `${max - used} TRIES LEFT`, tone: 'active' };
+  return { label: 'NEW', tone: 'new' };
 }
-const animate = () => LayoutAnimation.configureNext(LayoutAnimation.create(180, 'easeInEaseOut', 'opacity'));
-const REVEAL_MS = 700;
 
-export default function Today() {
+const PROGRAMS: { format: Format; name: string; blurb: string; route: '/order' | '/bug' }[] = [
+  { format: 'order', name: 'Order', blurb: 'Put the shuffled lines back in order. One of them is a decoy.', route: '/order' },
+  { format: 'bug', name: 'Bug Hunt', blurb: 'One line in this function is wrong. Find it.', route: '/bug' },
+];
+
+export default function Home() {
   const theme = useTheme();
   const s = makeStyles(theme);
-
-  const [puzzle, setPuzzle] = useState<OrderPuzzle | null>(null);
-  const [game, setGame] = useState<E.GameState | null>(null);
-  const [pool, setPool] = useState<string[]>([]);
-  const [streak, setStreak] = useState<StreakInfo>({ count: 0, best: 0, last: null });
-  const [stats, setStats] = useState<Stats>({ played: 0, wins: 0, dist: [0, 0, 0, 0] });
-  const [reveal, setReveal] = useState<boolean[] | null>(null);
+  const [today, setToday] = useState<Today | null>(null);
   const [booting, setBooting] = useState(true);
-  const loadedDay = useRef<string>('');
-  const scrollRef = useRef<ScrollViewInstance>(null);
-  const shake = useRef(new Animated.Value(0)).current;
+  const [left, setLeft] = useState(msUntilMidnight());
+  const loadedDay = useRef('');
 
   const load = useCallback(async () => {
-    const p = await getTodaysPuzzle();
-    const g = (await loadGame(p.number)) ?? E.newGame(p);
+    const [order, bug] = await Promise.all([getTodaysPuzzle(), getTodaysBugPuzzle()]);
+    const [orderGame, bugGame, streak] = await Promise.all([
+      loadGame('order', order.number),
+      loadGame('bug', bug.number),
+      loadStreak(),
+    ]);
     loadedDay.current = localDateKey();
-    setPuzzle(p);
-    setPool(E.poolOrder(p));
-    setGame(g);
-    setStreak(await loadStreak());
-    setStats(await loadStats());
+    setToday({ order, bug, orderGame, bugGame, streak });
   }, []);
 
+  // Reload on focus so statuses update after playing, and when the app wakes on a new day.
+  useFocusEffect(useCallback(() => { load(); }, [load]));
   useEffect(() => {
-    load();
     const sub = AppState.addEventListener('change', (st) => {
       if (st === 'active' && loadedDay.current && loadedDay.current !== localDateKey()) load();
     });
-    return () => sub.remove();
+    const t = setInterval(() => setLeft(msUntilMidnight()), 1000);
+    return () => { sub.remove(); clearInterval(t); };
   }, [load]);
 
-  const commit = (next: E.GameState) => {
-    setGame(next);
-    saveGame(next);
-  };
-
-  // Retry uploading a finished result whenever this screen regains focus (e.g. after signing in).
-  useFocusEffect(
-    useCallback(() => {
-      if (!game || !puzzle || game.status === 'playing' || game.submitted) return;
-      submitResult(game, puzzle).then((ok) => ok && commit({ ...game, submitted: true }));
-    }, [game, puzzle]),
-  );
-
-  // The boot screen sits in the same slot in both renders below so it isn't remounted when loading finishes.
+  // The boot screen sits in the same slot in both renders so it isn't remounted when loading finishes.
   const boot = booting ? (
-    <BootScreen ready={!!puzzle && !!game} number={puzzle?.number} theme={theme} onDone={() => setBooting(false)} />
+    <BootScreen ready={!!today} number={today?.order.number} theme={theme} onDone={() => setBooting(false)} />
   ) : null;
+  if (!today) return <View style={s.root}>{null}{boot ?? <Loading theme={theme} />}</View>;
 
-  if (!puzzle || !game) return <View style={s.root}>{null}{boot ?? <Loading theme={theme} />}</View>;
-
-  const playing = game.status === 'playing' && !reveal;
-  const placed = E.placedIds(game);
-  const firstEmpty = game.slots.findIndex((x) => x === null);
-  const triesLeft = E.MAX_TRIES - game.attempts.length;
-
-  const onPlace = (id: string) => {
-    if (!playing) return;
-    const next = E.place(game, id);
-    if (next === game) return;
-    Haptics.selectionAsync();
-    animate();
-    commit(next);
+  const statuses: Record<Format, Status> = {
+    order: statusOf(today.orderGame, today.orderGame?.attempts.length ?? 0, MAX_TRIES.order),
+    bug: statusOf(today.bugGame, today.bugGame?.guesses.length ?? 0, MAX_TRIES.bug),
   };
-
-  const onUnplace = (i: number) => {
-    if (!playing) return;
-    const next = E.unplace(game, i);
-    if (next === game) return;
-    Haptics.selectionAsync();
-    animate();
-    commit(next);
-  };
-
-  const onClear = () => {
-    if (!playing) return;
-    animate();
-    commit(E.clearUnlocked(game));
-  };
-
-  const onCheck = () => {
-    if (!playing || !E.isFull(game)) return;
-    const row = E.evaluate(game, puzzle);
-    const solved = row.every(Boolean);
-    setReveal(row);
-    if (solved) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } else {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Animated.sequence(
-        [8, -8, 5, -5, 0].map((v) => Animated.timing(shake, { toValue: v, duration: 60, useNativeDriver: true })),
-      ).start();
-    }
-    setTimeout(async () => {
-      let next = E.applyResult(game, puzzle, row);
-      animate();
-      setReveal(null);
-      if (next.status !== 'playing') {
-        const res = await recordFinish(next.status === 'won', next.attempts.length);
-        setStreak(res.streak);
-        setStats(res.stats);
-        if (await submitResult(next, puzzle)) next = { ...next, submitted: true };
-        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 250);
-      }
-      commit(next);
-    }, REVEAL_MS);
-  };
-
-  const onShare = () => {
-    Share.share({ message: E.shareText(game, puzzle, streak.count) });
-  };
+  const titles: Record<Format, string> = { order: today.order.title, bug: today.bug.title };
+  const solved = Object.values(statuses).filter((st) => st.tone === 'won').length;
+  const date = new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }).toUpperCase();
 
   return (
     <View style={s.root}>
       <SafeAreaView style={s.screen} edges={['top', 'left', 'right']}>
-        <ScrollView ref={scrollRef} contentContainerStyle={s.content}>
+        <ScrollView contentContainerStyle={s.content}>
           <View style={s.header}>
             <Text style={s.mark} accessibilityRole="header">
               <Text style={s.paren}>while(</Text>streak<Text style={s.paren}>)</Text>
@@ -155,102 +92,82 @@ export default function Today() {
           </View>
 
           <View style={s.status}>
-            <Text style={s.statusText}>NO. {String(puzzle.number).padStart(3, '0')}</Text>
-            <Text style={s.statusText}>FORMAT: ORDER</Text>
-            <Text style={s.statusText} accessibilityLabel={`Current streak ${streak.count}`}>
-              STREAK {String(streak.count).padStart(2, '0')}
+            <Text style={s.statusText}>NO. {String(today.order.number).padStart(3, '0')}</Text>
+            <Text style={s.statusText}>{date}</Text>
+            <Text style={s.statusText} accessibilityLabel={`Current streak ${today.streak.count}`}>
+              STREAK {String(today.streak.count).padStart(2, '0')}
             </Text>
           </View>
 
-          <Text style={s.title}>{puzzle.title}</Text>
-          <RichText text={puzzle.prompt} theme={theme} style={s.prompt} />
+          <Text style={s.title}>Today's programs</Text>
+          <Text style={s.lede}>Solve either one to keep your streak. Lose both and it resets.</Text>
 
-          <View style={s.tries} accessibilityLabel={`${triesLeft} of ${E.MAX_TRIES} tries left`}>
-            {Array.from({ length: E.MAX_TRIES }, (_, i) => (
-              <View key={i} style={[s.pip, i < game.attempts.length && { backgroundColor: theme.ink }]} />
-            ))}
-            <Label theme={theme} style={{ marginLeft: 6 }}>{`${triesLeft} of ${E.MAX_TRIES} tries left`}</Label>
-          </View>
-
-          <Label theme={theme} index={1} style={s.section}>Solution</Label>
-          <Animated.View style={[s.editor, { transform: [{ translateX: shake }] }]}>
-            {game.slots.map((slot, i) => {
-              const verdict = reveal ? reveal[i] : null;
-              const isNext = playing && i === firstEmpty;
-              const line = slot ? E.lineById(puzzle, slot.id) : null;
+          <View style={s.cards}>
+            {PROGRAMS.map((prog, i) => {
+              const st = statuses[prog.format];
+              const done = st.tone === 'won' || st.tone === 'lost';
               return (
-                <View key={i} style={s.row}>
-                  <Text style={s.gutter}>{String(i + 1).padStart(2, '0')}</Text>
-                  <Pressable
-                    onPress={() => onUnplace(i)}
-                    disabled={!slot || slot.locked || !playing}
-                    accessibilityRole="button"
-                    accessibilityLabel={line ? `Line ${i + 1}: ${line.text}${slot?.locked ? ', correct' : ', tap to remove'}` : `Empty line ${i + 1}`}
-                    style={[
-                      s.slot,
-                      !slot && s.slotEmpty,
-                      isNext && { borderStyle: 'solid', borderColor: theme.accent },
-                      slot?.locked && { backgroundColor: theme.okBg },
-                      verdict === true && { backgroundColor: theme.okBg, borderColor: theme.ok },
-                      verdict === false && { backgroundColor: theme.badBg, borderColor: theme.bad },
-                    ]}
-                  >
-                    {line && <CodeLine text={line.text} indent={line.indent} theme={theme} />}
-                    {isNext && <Cursor theme={theme} height={15} />}
-                  </Pressable>
-                </View>
+                <Pressable
+                  key={prog.format}
+                  onPress={() => router.push(prog.route)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${prog.name}: ${titles[prog.format]}. ${st.label.toLowerCase()}`}
+                  style={({ pressed }) => [s.card, pressed ? { transform: [{ translateX: 4 }, { translateY: 4 }] } : hardShadow(theme, 4)]}
+                >
+                  <View style={s.cardTop}>
+                    <Label theme={theme} index={i + 1}>{prog.name}</Label>
+                    <Badge status={st} theme={theme} />
+                  </View>
+                  <Text style={s.cardTitle}>{titles[prog.format]}</Text>
+                  <Text style={s.blurb}>{prog.blurb}</Text>
+                  <View style={s.cardFoot}>
+                    <Text style={s.footText}>{MAX_TRIES[prog.format]} TRIES</Text>
+                    <Text style={s.run}>{done ? 'REVIEW' : st.tone === 'active' ? 'RESUME' : 'RUN'} -&gt;</Text>
+                  </View>
+                </Pressable>
               );
             })}
-          </Animated.View>
+          </View>
 
-          {game.status === 'playing' && (
-            <>
-              <Label theme={theme} index={2} style={s.section}>Lines, tap to place</Label>
-              <View style={s.pool}>
-                {pool
-                  .filter((id) => !placed.has(id))
-                  .map((id) => {
-                    const line = E.lineById(puzzle, id);
-                    return (
-                      <Pressable
-                        key={id}
-                        onPress={() => onPlace(id)}
-                        disabled={!playing}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Place line: ${line.text}`}
-                        style={({ pressed }) => [s.chip, pressed ? { transform: [{ translateX: 2 }, { translateY: 2 }] } : hardShadow(theme, 2)]}
-                      >
-                        <CodeLine text={line.text} indent={line.indent} guides theme={theme} />
-                      </Pressable>
-                    );
-                  })}
-              </View>
-
-              <View style={s.actions}>
-                <Button label="Clear" onPress={onClear} theme={theme} disabled={!playing || !E.hasUnlocked(game)} />
-                <Button label="Check" variant="primary" onPress={onCheck} theme={theme} disabled={!playing || !E.isFull(game)} style={{ flex: 1 }} />
-              </View>
-              <Text style={s.hint}>Tap a placed line to send it back. Green lines lock in after each check.</Text>
-            </>
-          )}
-
-          {game.status !== 'playing' && !reveal && (
-            <ResultCard
-              puzzle={puzzle}
-              game={game}
-              streak={streak}
-              stats={stats}
-              theme={theme}
-              onShare={onShare}
-              onLeaderboard={() => router.push('/leaderboard')}
-            />
-          )}
+          <View style={s.summary}>
+            <View>
+              <Text style={s.summaryValue}>{solved}/2</Text>
+              <Text style={s.summaryLabel}>SOLVED TODAY</Text>
+            </View>
+            <View>
+              <Text style={s.summaryValue}>{today.streak.best}</Text>
+              <Text style={s.summaryLabel}>BEST STREAK</Text>
+            </View>
+            <View style={{ alignItems: 'flex-end', flex: 1 }}>
+              <Text style={s.summaryValue}>{formatClock(left)}</Text>
+              <Text style={s.summaryLabel}>NEXT PUZZLES</Text>
+            </View>
+          </View>
         </ScrollView>
       </SafeAreaView>
       {boot}
     </View>
   );
 }
+
+function Badge({ status, theme }: { status: Status; theme: Palette }) {
+  const tones = {
+    new: { bg: theme.accent, fg: theme.accentInk, border: theme.accent },
+    active: { bg: 'transparent', fg: theme.ink, border: theme.ink },
+    won: { bg: theme.ok, fg: theme.bg, border: theme.ok },
+    lost: { bg: 'transparent', fg: theme.bad, border: theme.bad },
+  }[status.tone];
+  return (
+    <Text style={[badge.text, { backgroundColor: tones.bg, color: tones.fg, borderColor: tones.border }]}>{status.label}</Text>
+  );
+}
+
+const badge = StyleSheet.create({
+  text: {
+    fontFamily: fonts.monoBold, fontSize: 10, letterSpacing: 1.4, borderWidth: 1.5,
+    paddingHorizontal: 6, paddingVertical: 2, overflow: 'hidden',
+  },
+});
 
 const makeStyles = (t: Palette) =>
   StyleSheet.create({
@@ -261,26 +178,22 @@ const makeStyles = (t: Palette) =>
     nav: { flexDirection: 'row', alignItems: 'center', gap: 16 },
     mark: { fontFamily: fonts.display, fontSize: 34, color: t.ink },
     paren: { color: t.accent },
-    status: {
-      flexDirection: 'row', justifyContent: 'space-between', backgroundColor: t.ink,
-      paddingHorizontal: 10, paddingVertical: 6,
-    },
+    status: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: t.ink, paddingHorizontal: 10, paddingVertical: 6 },
     statusText: { fontFamily: fonts.monoMedium, fontSize: 11, letterSpacing: 1.6, color: t.bg },
-    title: { fontFamily: fonts.display, fontSize: 52, lineHeight: 52, color: t.ink, marginTop: 22 },
-    prompt: { fontFamily: fonts.mono, fontSize: 14, lineHeight: 22, color: t.ink, marginTop: 8 },
-    tries: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 18 },
-    pip: { width: 12, height: 12, borderWidth: 2, borderColor: t.ink },
-    section: { marginTop: 26, marginBottom: 10 },
-    editor: { backgroundColor: t.surface, borderColor: t.ink, borderWidth: 2, paddingVertical: 6, ...hardShadow(t, 4) },
-    row: { flexDirection: 'row', alignItems: 'stretch', minHeight: 42 },
-    gutter: { width: 34, textAlign: 'right', paddingRight: 10, fontFamily: fonts.mono, fontSize: 11, color: t.muted, alignSelf: 'center' },
-    slot: {
-      flex: 1, flexDirection: 'row', alignItems: 'center', marginVertical: 2, marginRight: 8, borderWidth: 1.5,
-      borderColor: 'transparent', paddingHorizontal: 8, paddingVertical: 6,
+    title: { fontFamily: fonts.display, fontSize: 44, lineHeight: 44, color: t.ink, marginTop: 24 },
+    lede: { fontFamily: fonts.mono, fontSize: 13, lineHeight: 20, color: t.muted, marginTop: 6 },
+    cards: { gap: 22, marginTop: 24 },
+    card: { backgroundColor: t.surface, borderColor: t.ink, borderWidth: 2, padding: 16 },
+    cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    cardTitle: { fontFamily: fonts.display, fontSize: 36, lineHeight: 38, color: t.ink, marginTop: 10 },
+    blurb: { fontFamily: fonts.mono, fontSize: 12.5, lineHeight: 19, color: t.muted, marginTop: 2 },
+    cardFoot: {
+      flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 14, paddingTop: 10,
+      borderTopWidth: 1, borderStyle: 'dashed', borderColor: t.line,
     },
-    slotEmpty: { borderStyle: 'dashed', borderColor: t.line, backgroundColor: t.slot },
-    pool: { gap: 10 },
-    chip: { backgroundColor: t.surface, borderColor: t.ink, borderWidth: 1.5, paddingHorizontal: 10, paddingVertical: 9 },
-    actions: { flexDirection: 'row', gap: 12, marginTop: 24 },
-    hint: { fontFamily: fonts.mono, color: t.muted, fontSize: 12, lineHeight: 18, marginTop: 14 },
+    footText: { fontFamily: fonts.monoMedium, fontSize: 10, letterSpacing: 1.6, color: t.muted },
+    run: { fontFamily: fonts.monoBold, fontSize: 13, letterSpacing: 1.6, color: t.accent },
+    summary: { flexDirection: 'row', gap: 28, marginTop: 32, borderTopWidth: 2, borderColor: t.ink, paddingTop: 12 },
+    summaryValue: { fontFamily: fonts.display, fontSize: 30, lineHeight: 32, color: t.ink },
+    summaryLabel: { fontFamily: fonts.monoMedium, fontSize: 10, letterSpacing: 1.6, color: t.muted },
   });
