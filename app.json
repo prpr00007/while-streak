@@ -6,8 +6,25 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "ios": { "bundleIdentifier": "com.whilestreak.app", "supportsTablet": false },
-    "android": { "package": "com.whilestreak.app" },
-    "plugins": ["expo-router", "expo-font"]
+    "ios": {
+      "bundleIdentifier": "com.whilestreak.app",
+      "supportsTablet": false
+    },
+    "android": {
+      "package": "com.whilestreak.app"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#EFE8D8",
+          "dark": {
+            "backgroundColor": "#15130F"
+          }
+        }
+      ]
+    ]
   }
 }

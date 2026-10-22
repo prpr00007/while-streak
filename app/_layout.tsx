@@ -1,14 +1,22 @@
+import { useEffect } from 'react';
 import { Stack } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts, IBMPlexMono_400Regular, IBMPlexMono_500Medium, IBMPlexMono_700Bold } from '@expo-google-fonts/ibm-plex-mono';
 import { VT323_400Regular } from '@expo-google-fonts/vt323';
 import { fonts, useIsDark, useTheme } from '../src/theme';
 
+// Hold the native splash (plain paper color) until fonts are ready, so the boot screen never renders unstyled.
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
 export default function RootLayout() {
   const theme = useTheme();
   const dark = useIsDark();
-  const [loaded] = useFonts({ IBMPlexMono_400Regular, IBMPlexMono_500Medium, IBMPlexMono_700Bold, VT323_400Regular });
-  if (!loaded) return null;
+  const [loaded, error] = useFonts({ IBMPlexMono_400Regular, IBMPlexMono_500Medium, IBMPlexMono_700Bold, VT323_400Regular });
+  useEffect(() => {
+    if (loaded || error) SplashScreen.hideAsync().catch(() => {});
+  }, [loaded, error]);
+  if (!loaded && !error) return null;
 
   return (
     <>

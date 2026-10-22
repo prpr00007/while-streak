@@ -17,6 +17,7 @@ import CodeLine from '../src/components/CodeLine';
 import RichText from '../src/components/RichText';
 import ResultCard from '../src/components/ResultCard';
 import { Button, Cursor, Label, Loading, TextLink } from '../src/components/ui';
+import BootScreen from '../src/components/BootScreen';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -34,6 +35,7 @@ export default function Today() {
   const [streak, setStreak] = useState<StreakInfo>({ count: 0, best: 0, last: null });
   const [stats, setStats] = useState<Stats>({ played: 0, wins: 0, dist: [0, 0, 0, 0] });
   const [reveal, setReveal] = useState<boolean[] | null>(null);
+  const [booting, setBooting] = useState(true);
   const loadedDay = useRef<string>('');
   const scrollRef = useRef<ScrollViewInstance>(null);
   const shake = useRef(new Animated.Value(0)).current;
@@ -70,7 +72,12 @@ export default function Today() {
     }, [game, puzzle]),
   );
 
-  if (!puzzle || !game) return <Loading theme={theme} />;
+  // The boot screen sits in the same slot in both renders below so it isn't remounted when loading finishes.
+  const boot = booting ? (
+    <BootScreen ready={!!puzzle && !!game} number={puzzle?.number} theme={theme} onDone={() => setBooting(false)} />
+  ) : null;
+
+  if (!puzzle || !game) return <View style={s.root}>{null}{boot ?? <Loading theme={theme} />}</View>;
 
   const playing = game.status === 'playing' && !reveal;
   const placed = E.placedIds(game);
@@ -134,116 +141,120 @@ export default function Today() {
   };
 
   return (
-    <SafeAreaView style={s.screen} edges={['top', 'left', 'right']}>
-      <ScrollView ref={scrollRef} contentContainerStyle={s.content}>
-        <View style={s.header}>
-          <Text style={s.mark} accessibilityRole="header">
-            <Text style={s.paren}>while(</Text>streak<Text style={s.paren}>)</Text>
-          </Text>
-          <View style={s.nav}>
-            <TextLink label="Board" onPress={() => router.push('/leaderboard')} theme={theme} />
-            <TextLink label="Account" onPress={() => router.push('/account')} theme={theme} />
+    <View style={s.root}>
+      <SafeAreaView style={s.screen} edges={['top', 'left', 'right']}>
+        <ScrollView ref={scrollRef} contentContainerStyle={s.content}>
+          <View style={s.header}>
+            <Text style={s.mark} accessibilityRole="header">
+              <Text style={s.paren}>while(</Text>streak<Text style={s.paren}>)</Text>
+            </Text>
+            <View style={s.nav}>
+              <TextLink label="Board" onPress={() => router.push('/leaderboard')} theme={theme} />
+              <TextLink label="Account" onPress={() => router.push('/account')} theme={theme} />
+            </View>
           </View>
-        </View>
 
-        <View style={s.status}>
-          <Text style={s.statusText}>NO. {String(puzzle.number).padStart(3, '0')}</Text>
-          <Text style={s.statusText}>FORMAT: ORDER</Text>
-          <Text style={s.statusText} accessibilityLabel={`Current streak ${streak.count}`}>
-            STREAK {String(streak.count).padStart(2, '0')}
-          </Text>
-        </View>
+          <View style={s.status}>
+            <Text style={s.statusText}>NO. {String(puzzle.number).padStart(3, '0')}</Text>
+            <Text style={s.statusText}>FORMAT: ORDER</Text>
+            <Text style={s.statusText} accessibilityLabel={`Current streak ${streak.count}`}>
+              STREAK {String(streak.count).padStart(2, '0')}
+            </Text>
+          </View>
 
-        <Text style={s.title}>{puzzle.title}</Text>
-        <RichText text={puzzle.prompt} theme={theme} style={s.prompt} />
+          <Text style={s.title}>{puzzle.title}</Text>
+          <RichText text={puzzle.prompt} theme={theme} style={s.prompt} />
 
-        <View style={s.tries} accessibilityLabel={`${triesLeft} of ${E.MAX_TRIES} tries left`}>
-          {Array.from({ length: E.MAX_TRIES }, (_, i) => (
-            <View key={i} style={[s.pip, i < game.attempts.length && { backgroundColor: theme.ink }]} />
-          ))}
-          <Label theme={theme} style={{ marginLeft: 6 }}>{`${triesLeft} of ${E.MAX_TRIES} tries left`}</Label>
-        </View>
+          <View style={s.tries} accessibilityLabel={`${triesLeft} of ${E.MAX_TRIES} tries left`}>
+            {Array.from({ length: E.MAX_TRIES }, (_, i) => (
+              <View key={i} style={[s.pip, i < game.attempts.length && { backgroundColor: theme.ink }]} />
+            ))}
+            <Label theme={theme} style={{ marginLeft: 6 }}>{`${triesLeft} of ${E.MAX_TRIES} tries left`}</Label>
+          </View>
 
-        <Label theme={theme} index={1} style={s.section}>Solution</Label>
-        <Animated.View style={[s.editor, { transform: [{ translateX: shake }] }]}>
-          {game.slots.map((slot, i) => {
-            const verdict = reveal ? reveal[i] : null;
-            const isNext = playing && i === firstEmpty;
-            const line = slot ? E.lineById(puzzle, slot.id) : null;
-            return (
-              <View key={i} style={s.row}>
-                <Text style={s.gutter}>{String(i + 1).padStart(2, '0')}</Text>
-                <Pressable
-                  onPress={() => onUnplace(i)}
-                  disabled={!slot || slot.locked || !playing}
-                  accessibilityRole="button"
-                  accessibilityLabel={line ? `Line ${i + 1}: ${line.text}${slot?.locked ? ', correct' : ', tap to remove'}` : `Empty line ${i + 1}`}
-                  style={[
-                    s.slot,
-                    !slot && s.slotEmpty,
-                    isNext && { borderStyle: 'solid', borderColor: theme.accent },
-                    slot?.locked && { backgroundColor: theme.okBg },
-                    verdict === true && { backgroundColor: theme.okBg, borderColor: theme.ok },
-                    verdict === false && { backgroundColor: theme.badBg, borderColor: theme.bad },
-                  ]}
-                >
-                  {line && <CodeLine text={line.text} indent={line.indent} theme={theme} />}
-                  {isNext && <Cursor theme={theme} height={15} />}
-                </Pressable>
+          <Label theme={theme} index={1} style={s.section}>Solution</Label>
+          <Animated.View style={[s.editor, { transform: [{ translateX: shake }] }]}>
+            {game.slots.map((slot, i) => {
+              const verdict = reveal ? reveal[i] : null;
+              const isNext = playing && i === firstEmpty;
+              const line = slot ? E.lineById(puzzle, slot.id) : null;
+              return (
+                <View key={i} style={s.row}>
+                  <Text style={s.gutter}>{String(i + 1).padStart(2, '0')}</Text>
+                  <Pressable
+                    onPress={() => onUnplace(i)}
+                    disabled={!slot || slot.locked || !playing}
+                    accessibilityRole="button"
+                    accessibilityLabel={line ? `Line ${i + 1}: ${line.text}${slot?.locked ? ', correct' : ', tap to remove'}` : `Empty line ${i + 1}`}
+                    style={[
+                      s.slot,
+                      !slot && s.slotEmpty,
+                      isNext && { borderStyle: 'solid', borderColor: theme.accent },
+                      slot?.locked && { backgroundColor: theme.okBg },
+                      verdict === true && { backgroundColor: theme.okBg, borderColor: theme.ok },
+                      verdict === false && { backgroundColor: theme.badBg, borderColor: theme.bad },
+                    ]}
+                  >
+                    {line && <CodeLine text={line.text} indent={line.indent} theme={theme} />}
+                    {isNext && <Cursor theme={theme} height={15} />}
+                  </Pressable>
+                </View>
+              );
+            })}
+          </Animated.View>
+
+          {game.status === 'playing' && (
+            <>
+              <Label theme={theme} index={2} style={s.section}>Lines, tap to place</Label>
+              <View style={s.pool}>
+                {pool
+                  .filter((id) => !placed.has(id))
+                  .map((id) => {
+                    const line = E.lineById(puzzle, id);
+                    return (
+                      <Pressable
+                        key={id}
+                        onPress={() => onPlace(id)}
+                        disabled={!playing}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Place line: ${line.text}`}
+                        style={({ pressed }) => [s.chip, pressed ? { transform: [{ translateX: 2 }, { translateY: 2 }] } : hardShadow(theme, 2)]}
+                      >
+                        <CodeLine text={line.text} indent={line.indent} guides theme={theme} />
+                      </Pressable>
+                    );
+                  })}
               </View>
-            );
-          })}
-        </Animated.View>
 
-        {game.status === 'playing' && (
-          <>
-            <Label theme={theme} index={2} style={s.section}>Lines, tap to place</Label>
-            <View style={s.pool}>
-              {pool
-                .filter((id) => !placed.has(id))
-                .map((id) => {
-                  const line = E.lineById(puzzle, id);
-                  return (
-                    <Pressable
-                      key={id}
-                      onPress={() => onPlace(id)}
-                      disabled={!playing}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Place line: ${line.text}`}
-                      style={({ pressed }) => [s.chip, pressed ? { transform: [{ translateX: 2 }, { translateY: 2 }] } : hardShadow(theme, 2)]}
-                    >
-                      <CodeLine text={line.text} indent={line.indent} guides theme={theme} />
-                    </Pressable>
-                  );
-                })}
-            </View>
+              <View style={s.actions}>
+                <Button label="Clear" onPress={onClear} theme={theme} disabled={!playing || !E.hasUnlocked(game)} />
+                <Button label="Check" variant="primary" onPress={onCheck} theme={theme} disabled={!playing || !E.isFull(game)} style={{ flex: 1 }} />
+              </View>
+              <Text style={s.hint}>Tap a placed line to send it back. Green lines lock in after each check.</Text>
+            </>
+          )}
 
-            <View style={s.actions}>
-              <Button label="Clear" onPress={onClear} theme={theme} disabled={!playing || !E.hasUnlocked(game)} />
-              <Button label="Check" variant="primary" onPress={onCheck} theme={theme} disabled={!playing || !E.isFull(game)} style={{ flex: 1 }} />
-            </View>
-            <Text style={s.hint}>Tap a placed line to send it back. Green lines lock in after each check.</Text>
-          </>
-        )}
-
-        {game.status !== 'playing' && !reveal && (
-          <ResultCard
-            puzzle={puzzle}
-            game={game}
-            streak={streak}
-            stats={stats}
-            theme={theme}
-            onShare={onShare}
-            onLeaderboard={() => router.push('/leaderboard')}
-          />
-        )}
-      </ScrollView>
-    </SafeAreaView>
+          {game.status !== 'playing' && !reveal && (
+            <ResultCard
+              puzzle={puzzle}
+              game={game}
+              streak={streak}
+              stats={stats}
+              theme={theme}
+              onShare={onShare}
+              onLeaderboard={() => router.push('/leaderboard')}
+            />
+          )}
+        </ScrollView>
+      </SafeAreaView>
+      {boot}
+    </View>
   );
 }
 
 const makeStyles = (t: Palette) =>
   StyleSheet.create({
+    root: { flex: 1, backgroundColor: t.bg },
     screen: { flex: 1, backgroundColor: t.bg },
     content: { padding: 16, paddingBottom: 56, maxWidth: 600, width: '100%', alignSelf: 'center' },
     header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 10 },
