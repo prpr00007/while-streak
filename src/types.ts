@@ -1,4 +1,4 @@
-export type Format = 'order' | 'bug';
+export type Format = 'order' | 'bug' | 'output' | 'fill';
 
 export type PuzzleLine = { id: string; text: string; indent: number };
 
@@ -27,3 +27,23 @@ export type BugPuzzle = {
   hint: string; // shown after the first miss
   why: string;
 };
+
+// Shared shape for the two multiple-choice formats.
+type ChoiceBase = {
+  number: number;
+  date: string;
+  title: string;
+  prompt: string; // `backticks` render as inline code
+  lines: BugLine[];
+  choices: string[]; // shown in this order to everyone
+  answer: number; // index into choices
+  why: string;
+};
+
+// Read the snippet, pick what it prints. One shot.
+export type OutputPuzzle = ChoiceBase & { format: 'output' };
+
+// One line contains `___`; pick the token that belongs there.
+export type FillPuzzle = ChoiceBase & { format: 'fill'; hint: string };
+
+export type ChoicePuzzle = OutputPuzzle | FillPuzzle;

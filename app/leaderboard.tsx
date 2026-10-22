@@ -10,7 +10,9 @@ import type { Format } from '../src/types';
 
 const TABS: { format: Format; label: string }[] = [
   { format: 'order', label: 'Order' },
-  { format: 'bug', label: 'Bug Hunt' },
+  { format: 'bug', label: 'Bug' },
+  { format: 'output', label: 'Output' },
+  { format: 'fill', label: 'Fill' },
 ];
 
 type Row = { user_id: string; username: string; solved: boolean; tries: number; time_ms: number };
@@ -24,7 +26,7 @@ export default function Leaderboard() {
   const [error, setError] = useState<string | null>(null);
   const number = puzzleNumberFor(localDateKey());
   const params = useLocalSearchParams<{ format?: string }>();
-  const [format, setFormat] = useState<Format>(params.format === 'bug' ? 'bug' : 'order');
+  const [format, setFormat] = useState<Format>(TABS.find((t) => t.format === params.format)?.format ?? 'order');
   const max = MAX_TRIES[format];
 
   const load = useCallback(async () => {
@@ -132,7 +134,7 @@ const makeStyles = (t: Palette) =>
     heading: { fontFamily: fonts.display, fontSize: 40, lineHeight: 40, color: t.ink, marginBottom: 14 },
     tabs: { flexDirection: 'row', borderWidth: 2, borderColor: t.ink, marginBottom: 20 },
     tab: { flex: 1, paddingVertical: 9, alignItems: 'center' },
-    tabText: { fontFamily: fonts.monoBold, fontSize: 12, letterSpacing: 1.8, color: t.ink },
+    tabText: { fontFamily: fonts.monoBold, fontSize: 11, letterSpacing: 1.4, color: t.ink },
     banner: {
       flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12,
       backgroundColor: t.surface, borderColor: t.ink, borderWidth: 2, padding: 14, marginBottom: 22,

@@ -2,15 +2,18 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Format } from '../types';
 import type { GameState } from '../game/orderEngine';
 import type { BugGame } from '../game/bugEngine';
+import type { ChoiceGame } from '../game/choiceEngine';
 import { MAX_TRIES as ORDER_TRIES } from '../game/orderEngine';
 import { MAX_TRIES as BUG_TRIES } from '../game/bugEngine';
+import { MAX_TRIES as CHOICE_TRIES } from '../game/choiceEngine';
 import { addDays, localDateKey, puzzleNumberFor } from './date';
 
 export type StreakInfo = { count: number; best: number; last: string | null };
 export type Stats = { played: number; wins: number; dist: number[] };
-type Games = { order: GameState; bug: BugGame };
+type Games = { order: GameState; bug: BugGame; output: ChoiceGame; fill: ChoiceGame };
 
-export const MAX_TRIES: Record<Format, number> = { order: ORDER_TRIES, bug: BUG_TRIES };
+export const FORMATS: Format[] = ['order', 'bug', 'output', 'fill'];
+export const MAX_TRIES: Record<Format, number> = { order: ORDER_TRIES, bug: BUG_TRIES, ...CHOICE_TRIES };
 
 // Order keeps its original keys so existing saves carry over.
 const STREAK = 'ws:streak';
@@ -46,7 +49,7 @@ export async function loadStreak(): Promise<StreakInfo> {
 }
 
 // The streak counts days with at least one solved puzzle. A loss only breaks it once
-// every puzzle today has been lost; until then the other format can still save the day.
+// every puzzle today has been lost; until then another format can still save the day.
 export async function recordFinish(format: Format, won: boolean, tries: number) {
   const today = localDateKey();
   const s = await read<StreakInfo>(STREAK, defaultStreak);
@@ -57,9 +60,9 @@ export async function recordFinish(format: Format, won: boolean, tries: number) 
       streak = { count, best: Math.max(s.best, count), last: today };
     }
   } else if (s.last !== today) {
-    const other: Format = format === 'order' ? 'bug' : 'order';
-    const otherGame = await loadGame(other, puzzleNumberFor(today));
-    if (otherGame?.status === 'lost') streak = { count: 0, best: s.best, last: null };
+    const n = puzzleNumberFor(today);
+    const others = await Promise.all(FORMATS.filter((f) => f !== format).map((f) => loadGame(f, n)));
+    if (others.every((g) => g?.status === 'lost')) streak = { count: 0, best: s.best, last: null };
   }
   const st = await loadStats(format);
   const stats: Stats = {

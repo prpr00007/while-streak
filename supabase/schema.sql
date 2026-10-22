@@ -1,15 +1,15 @@
 -- while(streak) schema. Paste into the Supabase SQL editor and run once.
 
--- One row per (number, format): each day has an Order puzzle and a Bug Hunt puzzle.
+-- One row per (number, format): each day has one puzzle in each of the four formats.
 create table if not exists public.puzzles (
   number       int not null,
   publish_date date not null,
-  format       text not null default 'order' check (format in ('order', 'bug')),
+  format       text not null default 'order' check (format in ('order', 'bug', 'output', 'fill')),
   title        text not null,
   prompt       text not null,
-  lines        jsonb not null,  -- order: [{ "id": "a", "text": "def f():", "indent": 0 }, ...]; bug: [{ "text": ..., "indent": 0 }, ...]
-  solution     jsonb not null,  -- order: ["a", "b", ...]; bug: { "bug": 2, "fix": "while lo <= hi:" }
-  hint         text,            -- bug only: shown after the first miss
+  lines        jsonb not null,  -- order: [{ "id": "a", "text": "def f():", "indent": 0 }, ...]; others: [{ "text": ..., "indent": 0 }, ...]
+  solution     jsonb not null,  -- order: ["a", "b", ...]; bug: { "bug": 2, "fix": "while lo <= hi:" }; output/fill: { "choices": [...], "answer": 1 }
+  hint         text,            -- bug and fill: shown after the first miss
   why          text not null,
   primary key (number, format),
   unique (publish_date, format)
@@ -32,7 +32,7 @@ create policy "users update their profile" on public.profiles for update using (
 create table if not exists public.results (
   user_id       uuid not null references auth.users(id) on delete cascade,
   puzzle_number int not null,
-  format        text not null default 'order' check (format in ('order', 'bug')),
+  format        text not null default 'order' check (format in ('order', 'bug', 'output', 'fill')),
   solved        boolean not null,
   tries         smallint not null check (tries between 1 and 4),
   time_ms       int not null check (time_ms >= 0),

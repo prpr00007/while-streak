@@ -3,20 +3,19 @@ import { AppState, Pressable, ScrollView, StyleSheet, Text, View } from 'react-n
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
 import { fonts, hardShadow, Palette, useTheme } from '../src/theme';
-import type { BugPuzzle, Format, OrderPuzzle } from '../src/types';
+import type { BugPuzzle, FillPuzzle, Format, OrderPuzzle, OutputPuzzle } from '../src/types';
 import type { GameState } from '../src/game/orderEngine';
 import type { BugGame } from '../src/game/bugEngine';
-import { getTodaysBugPuzzle, getTodaysPuzzle } from '../src/lib/puzzles';
+import type { ChoiceGame } from '../src/game/choiceEngine';
+import { getTodaysBugPuzzle, getTodaysFillPuzzle, getTodaysOutputPuzzle, getTodaysPuzzle } from '../src/lib/puzzles';
 import { loadGame, loadStreak, MAX_TRIES, StreakInfo } from '../src/lib/storage';
 import { formatClock, localDateKey, msUntilMidnight } from '../src/lib/date';
 import BootScreen from '../src/components/BootScreen';
 import { Label, Loading, TextLink } from '../src/components/ui';
 
 type Today = {
-  order: OrderPuzzle;
-  bug: BugPuzzle;
-  orderGame: GameState | null;
-  bugGame: BugGame | null;
+  puzzles: { order: OrderPuzzle; bug: BugPuzzle; output: OutputPuzzle; fill: FillPuzzle };
+  games: { order: GameState | null; bug: BugGame | null; output: ChoiceGame | null; fill: ChoiceGame | null };
   streak: StreakInfo;
 };
 
@@ -29,9 +28,11 @@ function statusOf(game: { status: string } | null, used: number, max: number): S
   return { label: 'NEW', tone: 'new' };
 }
 
-const PROGRAMS: { format: Format; name: string; blurb: string; route: '/order' | '/bug' }[] = [
+const PROGRAMS: { format: Format; name: string; blurb: string; route: '/order' | '/bug' | '/output' | '/fill' }[] = [
   { format: 'order', name: 'Order', blurb: 'Put the shuffled lines back in order. One of them is a decoy.', route: '/order' },
   { format: 'bug', name: 'Bug Hunt', blurb: 'One line in this function is wrong. Find it.', route: '/bug' },
+  { format: 'output', name: 'Output', blurb: 'Read the snippet and call what it prints. One shot.', route: '/output' },
+  { format: 'fill', name: 'Fill', blurb: 'One token is missing. Pick the one that makes it work.', route: '/fill' },
 ];
 
 export default function Home() {
@@ -43,14 +44,25 @@ export default function Home() {
   const loadedDay = useRef('');
 
   const load = useCallback(async () => {
-    const [order, bug] = await Promise.all([getTodaysPuzzle(), getTodaysBugPuzzle()]);
-    const [orderGame, bugGame, streak] = await Promise.all([
+    const [order, bug, output, fill] = await Promise.all([
+      getTodaysPuzzle(),
+      getTodaysBugPuzzle(),
+      getTodaysOutputPuzzle(),
+      getTodaysFillPuzzle(),
+    ]);
+    const [orderGame, bugGame, outputGame, fillGame, streak] = await Promise.all([
       loadGame('order', order.number),
       loadGame('bug', bug.number),
+      loadGame('output', output.number),
+      loadGame('fill', fill.number),
       loadStreak(),
     ]);
     loadedDay.current = localDateKey();
-    setToday({ order, bug, orderGame, bugGame, streak });
+    setToday({
+      puzzles: { order, bug, output, fill },
+      games: { order: orderGame, bug: bugGame, output: outputGame, fill: fillGame },
+      streak,
+    });
   }, []);
 
   // Reload on focus so statuses update after playing, and when the app wakes on a new day.
@@ -65,15 +77,17 @@ export default function Home() {
 
   // The boot screen sits in the same slot in both renders so it isn't remounted when loading finishes.
   const boot = booting ? (
-    <BootScreen ready={!!today} number={today?.order.number} theme={theme} onDone={() => setBooting(false)} />
+    <BootScreen ready={!!today} number={today?.puzzles.order.number} theme={theme} onDone={() => setBooting(false)} />
   ) : null;
   if (!today) return <View style={s.root}>{null}{boot ?? <Loading theme={theme} />}</View>;
 
+  const { games, puzzles } = today;
   const statuses: Record<Format, Status> = {
-    order: statusOf(today.orderGame, today.orderGame?.attempts.length ?? 0, MAX_TRIES.order),
-    bug: statusOf(today.bugGame, today.bugGame?.guesses.length ?? 0, MAX_TRIES.bug),
+    order: statusOf(games.order, games.order?.attempts.length ?? 0, MAX_TRIES.order),
+    bug: statusOf(games.bug, games.bug?.guesses.length ?? 0, MAX_TRIES.bug),
+    output: statusOf(games.output, games.output?.guesses.length ?? 0, MAX_TRIES.output),
+    fill: statusOf(games.fill, games.fill?.guesses.length ?? 0, MAX_TRIES.fill),
   };
-  const titles: Record<Format, string> = { order: today.order.title, bug: today.bug.title };
   const solved = Object.values(statuses).filter((st) => st.tone === 'won').length;
   const date = new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }).toUpperCase();
 
@@ -92,7 +106,7 @@ export default function Home() {
           </View>
 
           <View style={s.status}>
-            <Text style={s.statusText}>NO. {String(today.order.number).padStart(3, '0')}</Text>
+            <Text style={s.statusText}>NO. {String(puzzles.order.number).padStart(3, '0')}</Text>
             <Text style={s.statusText}>{date}</Text>
             <Text style={s.statusText} accessibilityLabel={`Current streak ${today.streak.count}`}>
               STREAK {String(today.streak.count).padStart(2, '0')}
@@ -100,7 +114,7 @@ export default function Home() {
           </View>
 
           <Text style={s.title}>Today's programs</Text>
-          <Text style={s.lede}>Solve either one to keep your streak. Lose both and it resets.</Text>
+          <Text style={s.lede}>Solve any one to keep your streak. Lose all four and it resets.</Text>
 
           <View style={s.cards}>
             {PROGRAMS.map((prog, i) => {
@@ -111,17 +125,17 @@ export default function Home() {
                   key={prog.format}
                   onPress={() => router.push(prog.route)}
                   accessibilityRole="button"
-                  accessibilityLabel={`${prog.name}: ${titles[prog.format]}. ${st.label.toLowerCase()}`}
+                  accessibilityLabel={`${prog.name}: ${puzzles[prog.format].title}. ${st.label.toLowerCase()}`}
                   style={({ pressed }) => [s.card, pressed ? { transform: [{ translateX: 4 }, { translateY: 4 }] } : hardShadow(theme, 4)]}
                 >
                   <View style={s.cardTop}>
                     <Label theme={theme} index={i + 1}>{prog.name}</Label>
                     <Badge status={st} theme={theme} />
                   </View>
-                  <Text style={s.cardTitle}>{titles[prog.format]}</Text>
+                  <Text style={s.cardTitle}>{puzzles[prog.format].title}</Text>
                   <Text style={s.blurb}>{prog.blurb}</Text>
                   <View style={s.cardFoot}>
-                    <Text style={s.footText}>{MAX_TRIES[prog.format]} TRIES</Text>
+                    <Text style={s.footText}>{MAX_TRIES[prog.format] === 1 ? 'ONE SHOT' : `${MAX_TRIES[prog.format]} TRIES`}</Text>
                     <Text style={s.run}>{done ? 'REVIEW' : st.tone === 'active' ? 'RESUME' : 'RUN'} -&gt;</Text>
                   </View>
                 </Pressable>
@@ -131,7 +145,7 @@ export default function Home() {
 
           <View style={s.summary}>
             <View>
-              <Text style={s.summaryValue}>{solved}/2</Text>
+              <Text style={s.summaryValue}>{solved}/{PROGRAMS.length}</Text>
               <Text style={s.summaryLabel}>SOLVED TODAY</Text>
             </View>
             <View>
@@ -182,7 +196,7 @@ const makeStyles = (t: Palette) =>
     statusText: { fontFamily: fonts.monoMedium, fontSize: 11, letterSpacing: 1.6, color: t.bg },
     title: { fontFamily: fonts.display, fontSize: 44, lineHeight: 44, color: t.ink, marginTop: 24 },
     lede: { fontFamily: fonts.mono, fontSize: 13, lineHeight: 20, color: t.muted, marginTop: 6 },
-    cards: { gap: 22, marginTop: 24 },
+    cards: { gap: 18, marginTop: 24 },
     card: { backgroundColor: t.surface, borderColor: t.ink, borderWidth: 2, padding: 16 },
     cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     cardTitle: { fontFamily: fonts.display, fontSize: 36, lineHeight: 38, color: t.ink, marginTop: 10 },

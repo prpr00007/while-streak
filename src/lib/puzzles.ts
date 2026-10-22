@@ -1,6 +1,8 @@
-import type { BugPuzzle, Format, OrderPuzzle } from '../types';
+import type { BugPuzzle, FillPuzzle, Format, OrderPuzzle, OutputPuzzle } from '../types';
 import { FALLBACK_PUZZLES } from '../data/fallbackPuzzles';
 import { FALLBACK_BUG_PUZZLES } from '../data/fallbackBugPuzzles';
+import { FALLBACK_OUTPUT_PUZZLES } from '../data/fallbackOutputPuzzles';
+import { FALLBACK_FILL_PUZZLES } from '../data/fallbackFillPuzzles';
 import { localDateKey, puzzleNumberFor } from './date';
 import { supabase } from './supabase';
 
@@ -61,3 +63,29 @@ export async function getTodaysBugPuzzle(): Promise<BugPuzzle> {
   const base = FALLBACK_BUG_PUZZLES[(number - 1) % FALLBACK_BUG_PUZZLES.length];
   return { ...base, number, date };
 }
+
+// Output and Fill rows store { "choices": [...], "answer": n } in `solution`.
+async function getChoicePuzzle<P extends OutputPuzzle | FillPuzzle>(format: P['format'], fallback: Omit<P, 'number' | 'date'>[]): Promise<P> {
+  const date = localDateKey();
+  const number = puzzleNumberFor(date);
+  const data = await fetchRow(format, number);
+  if (data) {
+    return {
+      number: data.number,
+      date: data.publish_date,
+      format,
+      title: data.title,
+      prompt: data.prompt,
+      lines: data.lines,
+      choices: data.solution.choices,
+      answer: data.solution.answer,
+      hint: data.hint ?? '',
+      why: data.why,
+    } as P;
+  }
+  const base = fallback[(number - 1) % fallback.length];
+  return { ...base, number, date } as P;
+}
+
+export const getTodaysOutputPuzzle = () => getChoicePuzzle<OutputPuzzle>('output', FALLBACK_OUTPUT_PUZZLES);
+export const getTodaysFillPuzzle = () => getChoicePuzzle<FillPuzzle>('fill', FALLBACK_FILL_PUZZLES);

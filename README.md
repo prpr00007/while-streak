@@ -4,8 +4,10 @@ A daily coding puzzle game. Everyone gets the same puzzles each day, keeps a str
 
 - **Order**: put shuffled lines of code back in order, with one decoy line mixed in. 4 tries.
 - **Bug Hunt**: one line of a short function is wrong. Select it and check. 3 tries; a hint unlocks after the first miss, and the fix is shown as a diff at the end.
+- **Output**: read a snippet and pick what it prints from 4 choices. One shot, then the real output and why.
+- **Fill**: one token is missing from a working function. Pick it from 4 chips; it previews in the blank. 3 tries, with a hint after the first miss.
 
-The streak counts days where you solved at least one of the two. Losing both resets it.
+The streak counts days where you solved at least one of the four. Losing all four resets it.
 
 Stack: Expo (React Native, iOS + Android) with expo-router, and Supabase (optional) for puzzles, sign-in, and leaderboards.
 
@@ -21,7 +23,7 @@ Stack: Expo (React Native, iOS + Android) with expo-router, and Supabase (option
    ```
 3. Scan the QR code with your phone camera (iOS) or Expo Go (Android).
 
-Without Supabase keys the app runs fully offline: puzzles come from `src/data/fallbackPuzzles.ts` and `src/data/fallbackBugPuzzles.ts`, and streaks and stats are stored on the device.
+Without Supabase keys the app runs fully offline: puzzles come from the files in `src/data/`, and streaks and stats are stored on the device.
 
 ## Turn on leaderboards (optional sign-in)
 
@@ -39,6 +41,8 @@ Players can play and keep streaks without an account. Signing in (email code) pl
 - Every player sees the same shuffle (seeded by the puzzle number).
 - Writing an Order puzzle: each one needs exactly one correct order plus one decoy line. Watch for pairs of lines that could legally swap (like `a = 0` and `b = 0`); merge them into one line (`a, b = 0, 0`) or the grader will mark a valid answer wrong.
 - Writing a Bug Hunt puzzle: exactly one line is wrong, and replacing it with `fix` must make the function correct. Avoid bugs that span two lines or that could be fixed by editing a different line, or players who pick that line are marked wrong. The `hint` should point at a failing input without naming the line. In Supabase, `solution` is `{ "bug": <0-based line>, "fix": "<corrected line>" }`.
+- Writing an Output puzzle: the snippet must print exactly one of the 4 choices, and the choices should be distinct plausible misreadings. Vary which slot holds the answer.
+- Writing a Fill puzzle: exactly one line contains `___`; the answer token must make the function correct and every other choice must break it. In Supabase, both use `solution = { "choices": [...], "answer": <index> }`, and Fill also uses `hint`.
 
 ## Project map
 
@@ -47,10 +51,12 @@ app/_layout.tsx          navigation, fonts, theme, native splash
 app/index.tsx            home: boot screen, today's two puzzles and their status
 app/order.tsx            Order puzzle
 app/bug.tsx              Bug Hunt puzzle
+app/output.tsx, fill.tsx Output and Fill puzzles (both use src/components/ChoiceGameScreen.tsx)
 app/leaderboard.tsx      today's ranking per format (solved, then fewest tries, then time)
 app/account.tsx          optional email sign-in + username
 src/game/orderEngine.ts  Order logic (place, check, lock, share text)
 src/game/bugEngine.ts    Bug Hunt logic (guess, grid, share text)
+src/game/choiceEngine.ts Output and Fill logic (multiple choice, tries per format)
 src/data/                7 bundled puzzles per format
 src/components/          shared UI (retro buttons, labels, cursor), result card, boot screen
 src/lib/                 dates, storage (per-format saves/stats, shared streak), Supabase, results

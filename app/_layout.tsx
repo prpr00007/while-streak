@@ -34,6 +34,8 @@ export default function RootLayout() {
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="order" options={{ title: 'ORDER' }} />
         <Stack.Screen name="bug" options={{ title: 'BUG HUNT' }} />
+        <Stack.Screen name="output" options={{ title: 'OUTPUT' }} />
+        <Stack.Screen name="fill" options={{ title: 'FILL THE BLANK' }} />
         <Stack.Screen name="leaderboard" options={{ title: 'LEADERBOARD' }} />
         <Stack.Screen name="account" options={{ title: 'ACCOUNT', presentation: 'modal' }} />
       </Stack>
