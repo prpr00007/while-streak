@@ -1,6 +1,6 @@
 # while(streak)
 
-A daily coding puzzle game. Everyone gets the same puzzles each day, keeps a streak going, and shares a Wordle-style grid. Each day has two puzzles:
+A daily coding puzzle game. Everyone gets the same puzzles each day, keeps a streak going, and shares a Wordle-style grid. Each day has four puzzles:
 
 - **Order**: put shuffled lines of code back in order, with one decoy line mixed in. 4 tries.
 - **Bug Hunt**: one line of a short function is wrong. Select it and check. 3 tries; a hint unlocks after the first miss, and the fix is shown as a diff at the end.
@@ -60,7 +60,7 @@ The **Puzzles** GitHub Action checks pull requests, publishes to Supabase on mer
 
 ```
 app/_layout.tsx          navigation, fonts, theme, native splash
-app/index.tsx            home: boot screen, today's two puzzles and their status
+app/index.tsx            home: boot screen, today's four puzzles and their status
 app/order.tsx            Order puzzle
 app/bug.tsx              Bug Hunt puzzle
 app/output.tsx, fill.tsx Output and Fill puzzles (both use src/components/ChoiceGameScreen.tsx)
